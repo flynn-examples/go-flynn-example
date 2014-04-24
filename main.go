@@ -41,5 +41,6 @@ func main() {
 		}
 		fmt.Fprintf(w, "Hello from Go on Flynn: port=%s hits=%d", port, count)
 	})
-	http.ListenAndServe(":"+port, nil)
+	fmt.Println("hitcounter listening on port", port)
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
