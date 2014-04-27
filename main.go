@@ -17,15 +17,12 @@ func main() {
 	}
 
 	m := migrate.NewMigrations()
-	m.Add(1,
-		`CREATE TABLE hits (count int)`,
-		`INSERT INTO hits (count) VALUES (0)`,
-	)
+	m.Add(1, "CREATE SEQUENCE hits")
 	if err := m.Migrate(db.DB); err != nil {
 		log.Fatal(err)
 	}
 
-	stmt, err := db.Prepare("UPDATE hits SET count = count+1 RETURNING count")
+	stmt, err := db.Prepare("SELECT nextval(hits)")
 	if err != nil {
 		log.Fatal(err)
 	}
