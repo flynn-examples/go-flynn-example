@@ -33,7 +33,7 @@
 		},
 		{
 			"ImportPath": "github.com/flynn/pq",
-			"Rev": "7827b5e87bedcb78ef2a4273d9f6ec64447d8383"
+			"Rev": "8ef02eb9194c875a2e37639d17b18f77d6685160"
 		},
 		{
 			"ImportPath": "github.com/flynn/rpcplus",
