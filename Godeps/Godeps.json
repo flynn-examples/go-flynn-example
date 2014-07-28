@@ -1,6 +1,6 @@
 {
 	"ImportPath": "github.com/flynn/go-flynn-example",
-	"GoVersion": "go1.2.1",
+	"GoVersion": "go1.3",
 	"Deps": [
 		{
 			"ImportPath": "github.com/coreos/go-etcd/etcd",
@@ -20,24 +20,12 @@
 			"Rev": "c88823a638e8dc828d6623252f9132262a71e791"
 		},
 		{
-			"ImportPath": "github.com/flynn/go-flynn/migrate",
-			"Rev": "c88823a638e8dc828d6623252f9132262a71e791"
-		},
-		{
-			"ImportPath": "github.com/flynn/go-flynn/postgres",
-			"Rev": "c88823a638e8dc828d6623252f9132262a71e791"
-		},
-		{
-			"ImportPath": "github.com/flynn/go-sql",
-			"Rev": "57345fbaa6a93d53c05dd4fdbaef6b8c807d755a"
-		},
-		{
-			"ImportPath": "github.com/flynn/pq",
-			"Rev": "8ef02eb9194c875a2e37639d17b18f77d6685160"
-		},
-		{
 			"ImportPath": "github.com/flynn/rpcplus",
 			"Rev": "05df3d30b6e55f5b440c1a78e2f83cb822bc0d76"
+		},
+		{
+			"ImportPath": "gopkg.in/mgo.v2",
+			"Rev": "3116f72d0fe0216b75201cb3a1ae61c82c2a4d63"
 		}
 	]
 }

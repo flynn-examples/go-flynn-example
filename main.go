@@ -6,37 +6,45 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/flynn/go-flynn/migrate"
-	"github.com/flynn/go-flynn/postgres"
+	"github.com/flynn/go-discoverd"
+	"gopkg.in/mgo.v2"
+	"gopkg.in/mgo.v2/bson"
 )
 
 func main() {
-	db, err := postgres.Open("", "")
+	ss, err := discoverd.NewServiceSet("mongo")
 	if err != nil {
 		log.Fatal(err)
 	}
+	mongo := <-ss.Watch(true)
+	ss.Close()
 
-	m := migrate.NewMigrations()
-	m.Add(1, "CREATE SEQUENCE hits")
-	if err := m.Migrate(db.DB); err != nil {
-		log.Fatal(err)
-	}
-
-	stmt, err := db.Prepare("SELECT nextval(hits)")
+	sess, err := mgo.Dial(mongo.Addr)
 	if err != nil {
 		log.Fatal(err)
 	}
+	coll := sess.DB("hits").C("counter")
 
 	port := os.Getenv("PORT")
 
 	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
-		var count int
-		if err := stmt.QueryRow().Scan(&count); err != nil {
+		fail := func(err error) {
 			w.WriteHeader(500)
 			w.Write([]byte(err.Error()))
 			return
 		}
-		fmt.Fprintf(w, "Hello from Go on Flynn: port=%s hits=%d", port, count)
+		mongoCount := struct {
+			Hits int `bson:"hits"`
+		}{}
+
+		if _, err := coll.UpsertId("hits", bson.M{"$inc": bson.M{"hits": 1}}); err != nil {
+			fail(err)
+		}
+		if err := coll.FindId("hits").One(&mongoCount); err != nil {
+			fail(err)
+		}
+
+		fmt.Fprintf(w, "Hello from Go + MongoDB on Flynn: port=%s hits=%d\n", port, mongoCount.Hits)
 	})
 	fmt.Println("hitcounter listening on port", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
