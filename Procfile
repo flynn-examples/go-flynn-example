@@ -1,1 +1,1 @@
-web: go-example
+web: go-flynn-example

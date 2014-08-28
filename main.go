@@ -11,6 +11,8 @@ import (
 )
 
 func main() {
+	log.SetFlags(log.Lmicroseconds | log.Lshortfile)
+
 	db, err := postgres.Open("", "")
 	if err != nil {
 		log.Fatal(err)
@@ -22,7 +24,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	stmt, err := db.Prepare("SELECT nextval(hits)")
+	stmt, err := db.Prepare("SELECT nextval('hits')")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -36,7 +38,7 @@ func main() {
 			w.Write([]byte(err.Error()))
 			return
 		}
-		fmt.Fprintf(w, "Hello from Go on Flynn: port=%s hits=%d", port, count)
+		fmt.Fprintf(w, "Hello from Go+PostgreSQL on Flynn: port=%s hits=%d", port, count)
 	})
 	fmt.Println("hitcounter listening on port", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
