@@ -38,7 +38,7 @@ func main() {
 			w.Write([]byte(err.Error()))
 			return
 		}
-		fmt.Fprintf(w, "Hello from Go+PostgreSQL on Flynn: port=%s hits=%d", port, count)
+		fmt.Fprintf(w, "Hello from Go+PostgreSQL on Flynn: port=%s hits=%d container=%s\n", port, count, os.Getenv("HOSTNAME"))
 	})
 	fmt.Println("hitcounter listening on port", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
