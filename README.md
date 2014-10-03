@@ -3,7 +3,7 @@
 Add a postgres database with:
 
 ```text
-flynn resource-add postgres
+flynn resource add postgres
 ```
 
 ## Flynn
