@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/flynn/go-sql"
+	"github.com/flynn-examples/go-flynn-example/Godeps/_workspace/src/github.com/flynn/go-sql"
 )
 
 var db *sql.DB
@@ -19,6 +19,7 @@ func ExampleDB_Query() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer rows.Close()
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {

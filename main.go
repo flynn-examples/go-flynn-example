@@ -6,8 +6,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/flynn/go-flynn/migrate"
-	"github.com/flynn/go-flynn/postgres"
+	"github.com/flynn-examples/go-flynn-example/Godeps/_workspace/src/github.com/flynn/flynn/pkg/postgres"
 )
 
 func main() {
@@ -18,7 +17,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	m := migrate.NewMigrations()
+	m := postgres.NewMigrations()
 	m.Add(1, "CREATE SEQUENCE hits")
 	if err := m.Migrate(db.DB); err != nil {
 		log.Fatal(err)

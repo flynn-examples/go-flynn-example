@@ -1,6 +1,6 @@
 {
-	"ImportPath": "github.com/flynn/go-flynn-example",
-	"GoVersion": "go1.2.1",
+	"ImportPath": "github.com/flynn-examples/go-flynn-example",
+	"GoVersion": "go1.4",
 	"Deps": [
 		{
 			"ImportPath": "github.com/coreos/go-etcd/etcd",
@@ -8,36 +8,41 @@
 			"Rev": "d88f477a542c781eb9ad18ce82b3a0b9b6e2d07e"
 		},
 		{
-			"ImportPath": "github.com/flynn/discoverd/agent",
-			"Rev": "e8e6fbf2d0c8995114594ed027cdc509cffdcdf1"
+			"ImportPath": "github.com/flynn/flynn/discoverd/agent",
+			"Comment": "v20141225.0-17-ga76b5a9",
+			"Rev": "a76b5a94c3a6878fbbc1a26942d059dd25398ac0"
 		},
 		{
-			"ImportPath": "github.com/flynn/go-discoverd",
-			"Rev": "b07cd6bbd7d9b6144e7faa45fae67e0abc08c89d"
+			"ImportPath": "github.com/flynn/flynn/discoverd/client",
+			"Comment": "v20141225.0-17-ga76b5a9",
+			"Rev": "a76b5a94c3a6878fbbc1a26942d059dd25398ac0"
 		},
 		{
-			"ImportPath": "github.com/flynn/go-flynn/attempt",
-			"Rev": "c88823a638e8dc828d6623252f9132262a71e791"
+			"ImportPath": "github.com/flynn/flynn/pkg/attempt",
+			"Comment": "v20141225.0-17-ga76b5a9",
+			"Rev": "a76b5a94c3a6878fbbc1a26942d059dd25398ac0"
 		},
 		{
-			"ImportPath": "github.com/flynn/go-flynn/migrate",
-			"Rev": "c88823a638e8dc828d6623252f9132262a71e791"
+			"ImportPath": "github.com/flynn/flynn/pkg/postgres",
+			"Comment": "v20141225.0-17-ga76b5a9",
+			"Rev": "a76b5a94c3a6878fbbc1a26942d059dd25398ac0"
 		},
 		{
-			"ImportPath": "github.com/flynn/go-flynn/postgres",
-			"Rev": "c88823a638e8dc828d6623252f9132262a71e791"
+			"ImportPath": "github.com/flynn/flynn/pkg/rpcplus",
+			"Comment": "v20141225.0-17-ga76b5a9",
+			"Rev": "a76b5a94c3a6878fbbc1a26942d059dd25398ac0"
 		},
 		{
 			"ImportPath": "github.com/flynn/go-sql",
-			"Rev": "57345fbaa6a93d53c05dd4fdbaef6b8c807d755a"
+			"Rev": "8376517daddbc0945def6c4aa6300b9034edf8c4"
 		},
 		{
 			"ImportPath": "github.com/flynn/pq",
-			"Rev": "8ef02eb9194c875a2e37639d17b18f77d6685160"
+			"Rev": "29bc57434aa700fa80bc713bd85d3fe1d0cd4fc0"
 		},
 		{
-			"ImportPath": "github.com/flynn/rpcplus",
-			"Rev": "05df3d30b6e55f5b440c1a78e2f83cb822bc0d76"
+			"ImportPath": "github.com/kavu/go_reuseport",
+			"Rev": "014200e60fbd2172d2b14c5703b62657f826eaa9"
 		}
 	]
 }
