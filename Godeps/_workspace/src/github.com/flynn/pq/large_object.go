@@ -5,8 +5,8 @@ import (
 	"io"
 	"sync"
 
-	"github.com/flynn/go-sql"
-	"github.com/flynn/pq/oid"
+	"github.com/flynn-examples/go-flynn-example/Godeps/_workspace/src/github.com/flynn/go-sql"
+	"github.com/flynn-examples/go-flynn-example/Godeps/_workspace/src/github.com/flynn/pq/oid"
 )
 
 type LargeObjects struct {
