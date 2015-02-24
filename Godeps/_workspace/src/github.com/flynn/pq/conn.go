@@ -25,9 +25,9 @@ import (
 	"github.com/flynn-examples/go-flynn-example/Godeps/_workspace/src/github.com/flynn/pq/oid"
 )
 
-// Common error types
 var (
-	ErrNotSupported              = errors.New("pq: Unsupported command")
+	ErrNotSupported = errors. // Common error types
+	New("pq: Unsupported command")
 	ErrInFailedTransaction       = errors.New("pq: Could not complete operation in a failed transaction")
 	ErrSSLNotSupported           = errors.New("pq: SSL is not enabled on the server")
 	ErrSSLKeyHasWorldPermissions = errors.New("pq: Private key file has group or world access. Permissions should be u=rw (0600) or less.")

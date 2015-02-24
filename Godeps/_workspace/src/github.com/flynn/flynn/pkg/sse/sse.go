@@ -10,16 +10,23 @@ import (
 	"sync"
 )
 
-func NewWriter(w io.Writer) *Writer {
-	return &Writer{w: w}
+func newWriter(w io.Writer) *writer {
+	return &writer{w: w}
 }
 
-type Writer struct {
+type writer struct {
 	w   io.Writer
 	mtx sync.Mutex
 }
 
-func (w *Writer) Write(p []byte) (int, error) {
+func (w *writer) WriteID(id string) error {
+	w.mtx.Lock()
+	defer w.mtx.Unlock()
+	_, err := fmt.Fprintf(w.w, "id: %s\n", id)
+	return err
+}
+
+func (w *writer) Write(p []byte) (int, error) {
 	w.mtx.Lock()
 	defer w.mtx.Unlock()
 	for _, line := range bytes.Split(p, []byte("\n")) {
@@ -32,15 +39,17 @@ func (w *Writer) Write(p []byte) (int, error) {
 	return len(p), err
 }
 
-func (w *Writer) Error(err error) (int, error) {
+func (w *writer) Error(err error) (int, error) {
+	w.mtx.Lock()
 	_, e := w.w.Write([]byte("event: error\n"))
+	w.mtx.Unlock()
 	if e != nil {
 		return 0, e
 	}
 	return w.Write([]byte(err.Error()))
 }
 
-func (w *Writer) Flush() {
+func (w *writer) Flush() {
 	if fw, ok := w.w.(http.Flusher); ok {
 		fw.Flush()
 	}

@@ -4,11 +4,21 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	hh "github.com/flynn-examples/go-flynn-example/Godeps/_workspace/src/github.com/flynn/flynn/pkg/httphelper"
 )
+
+// EnvInstanceMeta are environment variables which will be automatically added
+// to instance metadata if present.
+var EnvInstanceMeta = map[string]struct{}{
+	"FLYNN_APP_ID":       {},
+	"FLYNN_RELEASE_ID":   {},
+	"FLYNN_PROCESS_TYPE": {},
+	"FLYNN_JOB_ID":       {},
+}
 
 type Heartbeater interface {
 	SetMeta(map[string]string) error
@@ -17,7 +27,7 @@ type Heartbeater interface {
 }
 
 func (c *Client) maybeAddService(service string) error {
-	if err := c.AddService(service); err != nil {
+	if err := c.AddService(service, nil); err != nil {
 		if je, ok := err.(hh.JSONError); !ok || je.Code != hh.ObjectExistsError {
 			return err
 		}
@@ -44,17 +54,30 @@ func (c *Client) Register(service, addr string) (Heartbeater, error) {
 }
 
 func (c *Client) RegisterInstance(service string, inst *Instance) (Heartbeater, error) {
-	firstErr := make(chan error)
+	inst.Addr = expandAddr(inst.Addr)
+	if inst.Proto == "" {
+		inst.Proto = "tcp"
+	}
+	inst.ID = inst.id()
 	h := &heartbeater{
 		c:       c,
 		service: service,
 		stop:    make(chan struct{}),
+		done:    make(chan struct{}),
 		inst:    inst.Clone(),
 	}
-	h.inst.Addr = expandAddr(h.inst.Addr)
-	if h.inst.Proto == "" {
-		h.inst.Proto = "tcp"
+	// add EnvInstanceMeta if present
+	for _, env := range os.Environ() {
+		kv := strings.SplitN(env, "=", 2)
+		if _, ok := EnvInstanceMeta[kv[0]]; !ok {
+			continue
+		}
+		if h.inst.Meta == nil {
+			h.inst.Meta = make(map[string]string)
+		}
+		h.inst.Meta[kv[0]] = kv[1]
 	}
+	firstErr := make(chan error)
 	go h.run(firstErr)
 	return h, <-firstErr
 }
@@ -62,6 +85,7 @@ func (c *Client) RegisterInstance(service string, inst *Instance) (Heartbeater, 
 type heartbeater struct {
 	c    *Client
 	stop chan struct{}
+	done chan struct{}
 
 	// Mutex protects inst.Meta
 	sync.Mutex
@@ -75,6 +99,7 @@ func (h *heartbeater) Close() error {
 	if !h.closed {
 		close(h.stop)
 		h.closed = true
+		<-h.done
 	}
 	return nil
 }
@@ -93,7 +118,6 @@ func (h *heartbeater) Addr() string {
 const heartbeatInterval = 5 * time.Second
 
 func (h *heartbeater) run(firstErr chan<- error) {
-	h.inst.ID = h.inst.id()
 	path := fmt.Sprintf("/services/%s/instances/%s", h.service, h.inst.ID)
 	register := func() error {
 		h.Lock()
@@ -115,6 +139,7 @@ func (h *heartbeater) run(firstErr chan<- error) {
 			}
 		case <-h.stop:
 			h.c.c.Delete(path)
+			close(h.done)
 			return
 		}
 	}

@@ -1,6 +1,7 @@
 package discoverd
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -19,6 +20,9 @@ type Service interface {
 	Addrs() ([]string, error)
 	Leaders(chan *Instance) (stream.Stream, error)
 	Watch(events chan *Event) (stream.Stream, error)
+	GetMeta() (*ServiceMeta, error)
+	SetMeta(*ServiceMeta) error
+	SetLeader(string) error
 }
 
 var ErrTimedOut = errors.New("discoverd: timed out waiting for instances")
@@ -51,8 +55,25 @@ func (c *Client) Ping() error {
 	return c.c.Get("/ping", nil)
 }
 
-func (c *Client) AddService(name string) error {
-	return c.c.Put("/services/"+name, nil, nil)
+type LeaderType string
+
+const (
+	LeaderTypeManual LeaderType = "manual"
+	LeaderTypeOldest LeaderType = "oldest"
+)
+
+type ServiceConfig struct {
+	LeaderType LeaderType `json:"leader_type"`
+}
+
+func (c *Client) AddService(name string, conf *ServiceConfig) error {
+	if conf == nil {
+		conf = &ServiceConfig{}
+	}
+	if conf.LeaderType == "" {
+		conf.LeaderType = LeaderTypeOldest
+	}
+	return c.c.Put("/services/"+name, conf, nil)
 }
 
 func (c *Client) RemoveService(name string) error {
@@ -187,4 +208,26 @@ func (s *service) Leaders(leaders chan *Instance) (stream.Stream, error) {
 
 func (s *service) Watch(events chan *Event) (stream.Stream, error) {
 	return s.client.c.Stream("GET", fmt.Sprintf("/services/%s", s.name), nil, events)
+}
+
+type ServiceMeta struct {
+	Data json.RawMessage
+
+	// When calling SetMeta, Index is checked against the current index and the
+	// set only succeeds if the index is the same. A zero index means the meta
+	// does not currently exist.
+	Index uint64
+}
+
+func (s *service) GetMeta() (*ServiceMeta, error) {
+	meta := &ServiceMeta{}
+	return meta, s.client.c.Get(fmt.Sprintf("/services/%s/meta", s.name), meta)
+}
+
+func (s *service) SetMeta(m *ServiceMeta) error {
+	return s.client.c.Put(fmt.Sprintf("/services/%s/meta", s.name), m, m)
+}
+
+func (s *service) SetLeader(id string) error {
+	return s.client.c.Put(fmt.Sprintf("/services/%s/leader", s.name), &Instance{ID: id}, nil)
 }

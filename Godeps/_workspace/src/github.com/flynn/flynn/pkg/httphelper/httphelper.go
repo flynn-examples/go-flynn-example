@@ -5,39 +5,47 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"reflect"
 	"time"
 
+	"github.com/flynn-examples/go-flynn-example/Godeps/_workspace/src/github.com/flynn/flynn/pkg/cors"
+	"github.com/flynn-examples/go-flynn-example/Godeps/_workspace/src/github.com/flynn/flynn/pkg/ctxhelper"
+	"github.com/flynn-examples/go-flynn-example/Godeps/_workspace/src/github.com/flynn/flynn/pkg/random"
 	"github.com/flynn-examples/go-flynn-example/Godeps/_workspace/src/github.com/julienschmidt/httprouter"
 	"github.com/flynn-examples/go-flynn-example/Godeps/_workspace/src/golang.org/x/net/context"
-	log15 "github.com/flynn-examples/go-flynn-example/Godeps/_workspace/src/gopkg.in/inconshreveable/log15.v2"
-	"github.com/flynn-examples/go-flynn-example/Godeps/_workspace/src/github.com/flynn/flynn/pkg/cors"
-	"github.com/flynn-examples/go-flynn-example/Godeps/_workspace/src/github.com/flynn/flynn/pkg/random"
 )
 
 type ErrorCode string
 
 const (
-	NotFoundError       ErrorCode = "not_found"
-	ObjectNotFoundError           = "object_not_found"
-	ObjectExistsError             = "object_exists"
-	SyntaxError                   = "syntax_error"
-	ValidationError               = "validation_error"
-	UnknownError                  = "unknown_error"
+	NotFoundError           ErrorCode = "not_found"
+	ObjectNotFoundError     ErrorCode = "object_not_found"
+	ObjectExistsError       ErrorCode = "object_exists"
+	SyntaxError             ErrorCode = "syntax_error"
+	ValidationError         ErrorCode = "validation_error"
+	PreconditionFailedError ErrorCode = "precondition_failed"
+	UnknownError            ErrorCode = "unknown_error"
 )
 
 var errorResponseCodes = map[ErrorCode]int{
-	NotFoundError:       404,
-	ObjectNotFoundError: 404,
-	ObjectExistsError:   409,
-	SyntaxError:         400,
-	ValidationError:     400,
-	UnknownError:        500,
+	NotFoundError:           404,
+	ObjectNotFoundError:     404,
+	ObjectExistsError:       409,
+	PreconditionFailedError: 412,
+	SyntaxError:             400,
+	ValidationError:         400,
+	UnknownError:            500,
 }
 
 type JSONError struct {
 	Code    ErrorCode       `json:"code"`
 	Message string          `json:"message"`
 	Detail  json.RawMessage `json:"detail,omitempty"`
+}
+
+func IsValidationError(err error) bool {
+	e, ok := err.(JSONError)
+	return ok && e.Code == ValidationError
 }
 
 var CORSAllowAllHandler = cors.Allow(&cors.Options{
@@ -49,22 +57,27 @@ var CORSAllowAllHandler = cors.Allow(&cors.Options{
 	MaxAge:           time.Hour,
 })
 
-type CtxKey string
+// Handler is an extended version of http.Handler that also takes a context
+// argument ctx.
+type Handler interface {
+	ServeHTTP(ctx context.Context, w http.ResponseWriter, r *http.Request)
+}
 
-const (
-	CtxKeyComponent CtxKey = "component"
-	CtxKeyReqID            = "req_id"
-	CtxKeyParams           = "params"
-	CtxKeyLogger           = "logger"
-)
+// The HandlerFunc type is an adapter to allow the use of ordinary functions as
+// Handlers.  If f is a function with the appropriate signature, HandlerFunc(f)
+// is a Handler object that calls f.
+type HandlerFunc func(context.Context, http.ResponseWriter, *http.Request)
 
-type Handle func(context.Context, http.ResponseWriter, *http.Request)
+// ServeHTTP calls f(ctx, w, r).
+func (f HandlerFunc) ServeHTTP(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	f(ctx, w, r)
+}
 
-func WrapHandler(handler Handle) httprouter.Handle {
+func WrapHandler(handler HandlerFunc) httprouter.Handle {
 	return func(w http.ResponseWriter, req *http.Request, params httprouter.Params) {
 		ctx := contextFromResponseWriter(w)
-		ctx = context.WithValue(ctx, CtxKeyParams, params)
-		handler(ctx, w, req)
+		ctx = ctxhelper.NewContextParams(ctx, params)
+		handler.ServeHTTP(ctx, w, req)
 	}
 }
 
@@ -74,16 +87,11 @@ func ContextInjector(componentName string, handler http.Handler) http.Handler {
 		if reqID == "" {
 			reqID = random.UUID()
 		}
-		ctx := context.WithValue(context.Background(), CtxKeyReqID, reqID)
-		ctx = context.WithValue(ctx, CtxKeyComponent, componentName)
+		ctx := ctxhelper.NewContextRequestID(context.Background(), reqID)
+		ctx = ctxhelper.NewContextComponentName(ctx, componentName)
 		rw := NewResponseWriter(w, ctx)
 		handler.ServeHTTP(rw, req)
 	})
-}
-
-func ParamsFromContext(ctx context.Context) httprouter.Params {
-	params := ctx.Value(CtxKeyParams).(httprouter.Params)
-	return params
 }
 
 func contextFromResponseWriter(w http.ResponseWriter) context.Context {
@@ -95,39 +103,58 @@ func (jsonError JSONError) Error() string {
 	return fmt.Sprintf("%s: %s", jsonError.Code, jsonError.Message)
 }
 
-func Error(w http.ResponseWriter, err error) {
-	var jsonError JSONError
-	switch err.(type) {
+func logError(w http.ResponseWriter, err error) {
+	if rw, ok := w.(*ResponseWriter); ok {
+		logger, _ := ctxhelper.LoggerFromContext(rw.Context())
+		logger.Error(err.Error())
+	} else {
+		log.Println(err)
+	}
+}
+
+func buildJSONError(err error) *JSONError {
+	var jsonError *JSONError
+	switch v := err.(type) {
 	case *json.SyntaxError, *json.UnmarshalTypeError:
-		jsonError = JSONError{
+		jsonError = &JSONError{
 			Code:    SyntaxError,
 			Message: "The provided JSON input is invalid",
 		}
 	case JSONError:
-		jsonError = err.(JSONError)
+		jsonError = &v
 	case *JSONError:
-		jsonError = *err.(*JSONError)
+		jsonError = v
 	default:
-		rw, ok := w.(*ResponseWriter)
-		if ok {
-			rw.Context().Value(CtxKeyLogger).(log15.Logger).Error(err.Error())
-		} else {
-			log.Println(err)
-		}
-		jsonError = JSONError{
+		jsonError = &JSONError{
 			Code:    UnknownError,
 			Message: "Something went wrong",
 		}
 	}
+	return jsonError
+}
 
-	responseCode, ok := errorResponseCodes[jsonError.Code]
-	if !ok {
-		responseCode = 500
+func Error(w http.ResponseWriter, err error) {
+	if rw, ok := w.(*ResponseWriter); !ok || (ok && rw.Status() == 0) {
+		jsonError := buildJSONError(err)
+		if jsonError.Code == UnknownError {
+			logError(w, err)
+		}
+		responseCode, ok := errorResponseCodes[jsonError.Code]
+		if !ok {
+			responseCode = 500
+		}
+		JSON(w, responseCode, jsonError)
+	} else {
+		logError(w, err)
 	}
-	JSON(w, responseCode, jsonError)
 }
 
 func JSON(w http.ResponseWriter, status int, v interface{}) {
+	// Encode nil slices as `[]` instead of `null`
+	if rv := reflect.ValueOf(v); rv.Type().Kind() == reflect.Slice && rv.IsNil() {
+		v = []struct{}{}
+	}
+
 	var result []byte
 	var err error
 	result, err = json.Marshal(v)

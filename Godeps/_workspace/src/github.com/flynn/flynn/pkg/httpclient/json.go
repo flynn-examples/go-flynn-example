@@ -33,16 +33,7 @@ type Client struct {
 	URL         string
 	Key         string
 	HTTP        *http.Client
-	Dial        DialFunc
-	DialClose   io.Closer
-}
-
-// Close closes the underlying transport connection.
-func (c *Client) Close() error {
-	if c.DialClose != nil {
-		c.DialClose.Close()
-	}
-	return nil
+	HijackDial  DialFunc
 }
 
 func ToJSON(v interface{}) (io.Reader, error) {
@@ -119,7 +110,7 @@ func (c *Client) Hijack(method, path string, header http.Header, in interface{})
 	if err != nil {
 		return nil, err
 	}
-	dial := c.Dial
+	dial := c.HijackDial
 	if dial == nil {
 		dial = net.Dial
 	}
@@ -164,7 +155,11 @@ func (c *Client) Hijack(method, path string, header http.Header, in interface{})
 // optional json object to be sent to the server via the body, and out is a
 // required channel, to which the output will be streamed.
 func (c *Client) Stream(method, path string, in, out interface{}) (stream.Stream, error) {
-	header := http.Header{"Accept": []string{"text/event-stream"}}
+	return c.StreamWithHeader(method, path, make(http.Header), in, out)
+}
+
+func (c *Client) StreamWithHeader(method, path string, header http.Header, in, out interface{}) (stream.Stream, error) {
+	header.Set("Accept", "text/event-stream")
 	res, err := c.RawReq(method, path, header, in, nil)
 	if err != nil {
 		return nil, err

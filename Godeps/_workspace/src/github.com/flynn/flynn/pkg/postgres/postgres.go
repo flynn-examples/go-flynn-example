@@ -1,16 +1,19 @@
 package postgres
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/flynn-examples/go-flynn-example/Godeps/_workspace/src/github.com/flynn/flynn/appliance/postgresql/state"
+	"github.com/flynn-examples/go-flynn-example/Godeps/_workspace/src/github.com/flynn/flynn/discoverd/client"
+	"github.com/flynn-examples/go-flynn-example/Godeps/_workspace/src/github.com/flynn/flynn/pkg/shutdown"
 	"github.com/flynn-examples/go-flynn-example/Godeps/_workspace/src/github.com/flynn/go-sql"
 	"github.com/flynn-examples/go-flynn-example/Godeps/_workspace/src/github.com/flynn/pq"
-	"github.com/flynn-examples/go-flynn-example/Godeps/_workspace/src/github.com/flynn/flynn/discoverd/client"
 )
 
 func New(db *sql.DB, dsn string) *DB {
@@ -21,25 +24,43 @@ func New(db *sql.DB, dsn string) *DB {
 	}
 }
 
-func Wait(service string) (string, string) {
+func Wait(service, dsn string) *DB {
 	if service == "" {
 		service = os.Getenv("FLYNN_POSTGRES")
 	}
 	events := make(chan *discoverd.Event)
 	stream, err := discoverd.NewService(service).Watch(events)
 	if err != nil {
-		log.Fatal(err)
+		shutdown.Fatal(err)
 	}
-	defer stream.Close()
+	// wait for service meta that has sync or singleton primary
 	for e := range events {
-		if e.Kind&(discoverd.EventKindUp|discoverd.EventKindUpdate) != 0 &&
-			e.Instance.Meta["up"] == "true" &&
-			e.Instance.Meta["username"] != "" &&
-			e.Instance.Meta["password"] != "" {
-			return e.Instance.Meta["username"], e.Instance.Meta["password"]
+		if e.Kind&discoverd.EventKindServiceMeta == 0 || e.ServiceMeta == nil || len(e.ServiceMeta.Data) == 0 {
+			continue
+		}
+		state := &state.State{}
+		json.Unmarshal(e.ServiceMeta.Data, state)
+		if state.Singleton || state.Sync != nil {
+			break
 		}
 	}
-	panic("discoverd disconnected before postgres came up")
+	stream.Close()
+	// TODO(titanous): handle discoverd disconnection
+
+	db, err := Open(service, dsn)
+	if err != nil {
+		panic(err)
+	}
+	for {
+		var readonly string
+		// wait until read-write transactions are allowed
+		if err := db.QueryRow("SHOW default_transaction_read_only").Scan(&readonly); err != nil || readonly == "on" {
+			time.Sleep(100 * time.Millisecond)
+			// TODO(titanous): add max wait here
+			continue
+		}
+		return db
+	}
 }
 
 func Open(service, dsn string) (*DB, error) {
@@ -48,7 +69,8 @@ func Open(service, dsn string) (*DB, error) {
 	}
 	db := &DB{
 		dsnSuffix: dsn,
-		dsn:       fmt.Sprintf("host=leader.%s.discoverd %s", service, dsn),
+		dsn:       fmt.Sprintf("host=leader.%s.discoverd sslmode=disable %s", service, dsn),
+		addr:      fmt.Sprintf("leader.%s.discoverd", service),
 		stmts:     make(map[string]*sql.Stmt),
 	}
 	var err error
@@ -61,8 +83,9 @@ type DB struct {
 
 	dsnSuffix string
 
-	mtx sync.RWMutex
-	dsn string
+	mtx  sync.RWMutex
+	dsn  string
+	addr string
 
 	stmts map[string]*sql.Stmt
 }
@@ -73,6 +96,12 @@ func (db *DB) DSN() string {
 	db.mtx.RLock()
 	defer db.mtx.RUnlock()
 	return db.dsn
+}
+
+func (db *DB) Addr() string {
+	db.mtx.RLock()
+	defer db.mtx.RUnlock()
+	return db.addr
 }
 
 func (db *DB) Close() error {
