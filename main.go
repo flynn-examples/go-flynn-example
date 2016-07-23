@@ -6,25 +6,17 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/flynn-examples/go-flynn-example/Godeps/_workspace/src/github.com/flynn/flynn/pkg/postgres"
+	"github.com/flynn/flynn/pkg/postgres"
 )
 
 func main() {
 	log.SetFlags(log.Lmicroseconds | log.Lshortfile)
 
-	db, err := postgres.Open("", "")
-	if err != nil {
-		log.Fatal(err)
-	}
+	db := postgres.Wait(nil, nil)
 
 	m := postgres.NewMigrations()
 	m.Add(1, "CREATE SEQUENCE hits")
-	if err := m.Migrate(db.DB); err != nil {
-		log.Fatal(err)
-	}
-
-	stmt, err := db.Prepare("SELECT nextval('hits')")
-	if err != nil {
+	if err := m.Migrate(db); err != nil {
 		log.Fatal(err)
 	}
 
@@ -32,7 +24,7 @@ func main() {
 
 	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		var count int
-		if err := stmt.QueryRow().Scan(&count); err != nil {
+		if err := db.QueryRow("SELECT nextval('hits')").Scan(&count); err != nil {
 			w.WriteHeader(500)
 			w.Write([]byte(err.Error()))
 			return
