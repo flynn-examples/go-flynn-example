@@ -2,6 +2,9 @@
 	"ImportPath": "github.com/flynn-examples/go-flynn-example",
 	"GoVersion": "go1.6",
 	"GodepVersion": "v74",
+	"Packages": [
+		"./..."
+	],
 	"Deps": [
 		{
 			"ImportPath": "github.com/flynn/flynn/discoverd/client",
