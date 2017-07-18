@@ -28,8 +28,10 @@ type ConnPool struct {
 	preparedStatements   map[string]*PreparedStatement
 	acquireTimeout       time.Duration
 	pgTypes              map[Oid]PgType
-	pgsql_af_inet        *byte
-	pgsql_af_inet6       *byte
+	pgsqlAfInet          *byte
+	pgsqlAfInet6         *byte
+	txAfterClose         func(tx *Tx)
+	rowsAfterClose       func(rows *Rows)
 }
 
 type ConnPoolStat struct {
@@ -66,6 +68,14 @@ func NewConnPool(config ConnPoolConfig) (p *ConnPool, err error) {
 	p.logger = config.Logger
 	if p.logger == nil {
 		p.logLevel = LogLevelNone
+	}
+
+	p.txAfterClose = func(tx *Tx) {
+		p.Release(tx.Conn())
+	}
+
+	p.rowsAfterClose = func(rows *Rows) {
+		p.Release(rows.Conn())
 	}
 
 	p.allConnections = make([]*Conn, 0, p.maxConnections)
@@ -138,26 +148,25 @@ func (p *ConnPool) acquire(deadline *time.Time) (*Conn, error) {
 		// Create a new connection.
 		// Careful here: createConnectionUnlocked() removes the current lock,
 		// creates a connection and then locks it back.
-		if c, err := p.createConnectionUnlocked(); err == nil {
-			c.poolResetCount = p.resetCount
-			p.allConnections = append(p.allConnections, c)
-			return c, nil
-		} else {
+		c, err := p.createConnectionUnlocked()
+		if err != nil {
 			return nil, err
 		}
-	} else {
-		// All connections are in use and we cannot create more
-		if p.logLevel >= LogLevelWarn {
-			p.logger.Warn("All connections in pool are busy - waiting...")
-		}
+		c.poolResetCount = p.resetCount
+		p.allConnections = append(p.allConnections, c)
+		return c, nil
+	}
+	// All connections are in use and we cannot create more
+	if p.logLevel >= LogLevelWarn {
+		p.logger.Warn("All connections in pool are busy - waiting...")
+	}
 
-		// Wait until there is an available connection OR room to create a new connection
-		for len(p.availableConnections) == 0 && len(p.allConnections)+p.inProgressConnects == p.maxConnections {
-			if p.deadlinePassed(deadline) {
-				return nil, errors.New("Timeout: All connections in pool are busy")
-			}
-			p.cond.Wait()
+	// Wait until there is an available connection OR room to create a new connection
+	for len(p.availableConnections) == 0 && len(p.allConnections)+p.inProgressConnects == p.maxConnections {
+		if p.deadlinePassed(deadline) {
+			return nil, errors.New("Timeout: All connections in pool are busy")
 		}
+		p.cond.Wait()
 	}
 
 	// Stop the timer so that we do not spawn it on every acquire call.
@@ -272,7 +281,7 @@ func (p *ConnPool) Stat() (s ConnPoolStat) {
 }
 
 func (p *ConnPool) createConnection() (*Conn, error) {
-	c, err := connect(p.config, p.pgTypes, p.pgsql_af_inet, p.pgsql_af_inet6)
+	c, err := connect(p.config, p.pgTypes, p.pgsqlAfInet, p.pgsqlAfInet6)
 	if err != nil {
 		return nil, err
 	}
@@ -308,8 +317,8 @@ func (p *ConnPool) createConnectionUnlocked() (*Conn, error) {
 // all the known statements for the new connection.
 func (p *ConnPool) afterConnectionCreated(c *Conn) (*Conn, error) {
 	p.pgTypes = c.PgTypes
-	p.pgsql_af_inet = c.pgsql_af_inet
-	p.pgsql_af_inet6 = c.pgsql_af_inet6
+	p.pgsqlAfInet = c.pgsqlAfInet
+	p.pgsqlAfInet6 = c.pgsqlAfInet6
 
 	if p.afterConnect != nil {
 		err := p.afterConnect(c)
@@ -487,10 +496,13 @@ func (p *ConnPool) BeginIso(iso string) (*Tx, error) {
 	}
 }
 
-func (p *ConnPool) txAfterClose(tx *Tx) {
-	p.Release(tx.Conn())
-}
+// CopyTo acquires a connection, delegates the call to that connection, and releases the connection
+func (p *ConnPool) CopyTo(tableName string, columnNames []string, rowSrc CopyToSource) (int, error) {
+	c, err := p.Acquire()
+	if err != nil {
+		return 0, err
+	}
+	defer p.Release(c)
 
-func (p *ConnPool) rowsAfterClose(rows *Rows) {
-	p.Release(rows.Conn())
+	return c.CopyTo(tableName, columnNames, rowSrc)
 }

@@ -22,6 +22,8 @@ const (
 	Int4Oid             = 23
 	TextOid             = 25
 	OidOid              = 26
+	XidOid              = 28
+	CidOid              = 29
 	JsonOid             = 114
 	CidrOid             = 650
 	CidrArrayOid        = 651
@@ -93,6 +95,8 @@ func init() {
 		"int4":         BinaryFormatCode,
 		"int8":         BinaryFormatCode,
 		"oid":          BinaryFormatCode,
+		"xid":          BinaryFormatCode,
+		"cid":          BinaryFormatCode,
 		"record":       BinaryFormatCode,
 		"text":         BinaryFormatCode,
 		"timestamp":    BinaryFormatCode,
@@ -225,28 +229,28 @@ type NullString struct {
 	Valid  bool // Valid is true if String is not NULL
 }
 
-func (s *NullString) Scan(vr *ValueReader) error {
+func (n *NullString) Scan(vr *ValueReader) error {
 	// Not checking oid as so we can scan anything into into a NullString - may revisit this decision later
 
 	if vr.Len() == -1 {
-		s.String, s.Valid = "", false
+		n.String, n.Valid = "", false
 		return nil
 	}
 
-	s.Valid = true
-	s.String = decodeText(vr)
+	n.Valid = true
+	n.String = decodeText(vr)
 	return vr.Err()
 }
 
 func (n NullString) FormatCode() int16 { return TextFormatCode }
 
-func (s NullString) Encode(w *WriteBuf, oid Oid) error {
-	if !s.Valid {
+func (n NullString) Encode(w *WriteBuf, oid Oid) error {
+	if !n.Valid {
 		w.WriteInt32(-1)
 		return nil
 	}
 
-	return encodeString(w, oid, s.String)
+	return encodeString(w, oid, n.String)
 }
 
 // NullInt16 represents an smallint that may be null. NullInt16 implements the
@@ -325,6 +329,113 @@ func (n NullInt32) Encode(w *WriteBuf, oid Oid) error {
 	}
 
 	return encodeInt32(w, oid, n.Int32)
+}
+
+// Xid is PostgreSQL's Transaction ID type.
+//
+// In later versions of PostgreSQL, it is the type used for the backend_xid
+// and backend_xmin columns of the pg_stat_activity system view.
+//
+// Also, when one does
+//
+// 	select xmin, xmax, * from some_table;
+//
+// it is the data type of the xmin and xmax hidden system columns.
+//
+// It is currently implemented as an unsigned four byte integer.
+// Its definition can be found in src/include/postgres_ext.h as TransactionId
+// in the PostgreSQL sources.
+type Xid uint32
+
+// NullXid represents a Transaction ID (Xid) that may be null. NullXid implements the
+// Scanner and Encoder interfaces so it may be used both as an argument to
+// Query[Row] and a destination for Scan.
+//
+// If Valid is false then the value is NULL.
+type NullXid struct {
+	Xid   Xid
+	Valid bool // Valid is true if Int32 is not NULL
+}
+
+func (n *NullXid) Scan(vr *ValueReader) error {
+	if vr.Type().DataType != XidOid {
+		return SerializationError(fmt.Sprintf("NullXid.Scan cannot decode OID %d", vr.Type().DataType))
+	}
+
+	if vr.Len() == -1 {
+		n.Xid, n.Valid = 0, false
+		return nil
+	}
+	n.Valid = true
+	n.Xid = decodeXid(vr)
+	return vr.Err()
+}
+
+func (n NullXid) FormatCode() int16 { return BinaryFormatCode }
+
+func (n NullXid) Encode(w *WriteBuf, oid Oid) error {
+	if oid != XidOid {
+		return SerializationError(fmt.Sprintf("NullXid.Encode cannot encode into OID %d", oid))
+	}
+
+	if !n.Valid {
+		w.WriteInt32(-1)
+		return nil
+	}
+
+	return encodeXid(w, oid, n.Xid)
+}
+
+// Cid is PostgreSQL's Command Identifier type.
+//
+// When one does
+//
+// 	select cmin, cmax, * from some_table;
+//
+// it is the data type of the cmin and cmax hidden system columns.
+//
+// It is currently implemented as an unsigned four byte integer.
+// Its definition can be found in src/include/c.h as CommandId
+// in the PostgreSQL sources.
+type Cid uint32
+
+// NullCid represents a Command Identifier (Cid) that may be null. NullCid implements the
+// Scanner and Encoder interfaces so it may be used both as an argument to
+// Query[Row] and a destination for Scan.
+//
+// If Valid is false then the value is NULL.
+type NullCid struct {
+	Cid   Cid
+	Valid bool // Valid is true if Int32 is not NULL
+}
+
+func (n *NullCid) Scan(vr *ValueReader) error {
+	if vr.Type().DataType != CidOid {
+		return SerializationError(fmt.Sprintf("NullCid.Scan cannot decode OID %d", vr.Type().DataType))
+	}
+
+	if vr.Len() == -1 {
+		n.Cid, n.Valid = 0, false
+		return nil
+	}
+	n.Valid = true
+	n.Cid = decodeCid(vr)
+	return vr.Err()
+}
+
+func (n NullCid) FormatCode() int16 { return BinaryFormatCode }
+
+func (n NullCid) Encode(w *WriteBuf, oid Oid) error {
+	if oid != CidOid {
+		return SerializationError(fmt.Sprintf("NullCid.Encode cannot encode into OID %d", oid))
+	}
+
+	if !n.Valid {
+		w.WriteInt32(-1)
+		return nil
+	}
+
+	return encodeCid(w, oid, n.Cid)
 }
 
 // NullInt64 represents an bigint that may be null. NullInt64 implements the
@@ -621,10 +732,9 @@ func Encode(wbuf *WriteBuf, oid Oid, arg interface{}) error {
 		if refVal.IsNil() {
 			wbuf.WriteInt32(-1)
 			return nil
-		} else {
-			arg = refVal.Elem().Interface()
-			return Encode(wbuf, oid, arg)
 		}
+		arg = refVal.Elem().Interface()
+		return Encode(wbuf, oid, arg)
 	}
 
 	if oid == JsonOid || oid == JsonbOid {
@@ -692,6 +802,10 @@ func Encode(wbuf *WriteBuf, oid Oid, arg interface{}) error {
 		return encodeIPNetSlice(wbuf, oid, arg)
 	case Oid:
 		return encodeOid(wbuf, oid, arg)
+	case Xid:
+		return encodeXid(wbuf, oid, arg)
+	case Cid:
+		return encodeCid(wbuf, oid, arg)
 	default:
 		if strippedArg, ok := stripNamedType(&refVal); ok {
 			return Encode(wbuf, oid, strippedArg)
@@ -816,6 +930,10 @@ func Decode(vr *ValueReader, d interface{}) error {
 		*v = uint64(n)
 	case *Oid:
 		*v = decodeOid(vr)
+	case *Xid:
+		*v = decodeXid(vr)
+	case *Cid:
+		*v = decodeCid(vr)
 	case *string:
 		*v = decodeText(vr)
 	case *float32:
@@ -892,14 +1010,13 @@ func Decode(vr *ValueReader, d interface{}) error {
 						el.Set(reflect.Zero(el.Type()))
 					}
 					return nil
-				} else {
-					if el.IsNil() {
-						// allocate destination
-						el.Set(reflect.New(el.Type().Elem()))
-					}
-					d = el.Interface()
-					return Decode(vr, d)
 				}
+				if el.IsNil() {
+					// allocate destination
+					el.Set(reflect.New(el.Type().Elem()))
+				}
+				d = el.Interface()
+				return Decode(vr, d)
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 				n := decodeInt(vr)
 				if el.OverflowInt(n) {
@@ -1301,19 +1418,19 @@ func decodeInt4(vr *ValueReader) int32 {
 func decodeOid(vr *ValueReader) Oid {
 	if vr.Len() == -1 {
 		vr.Fatal(ProtocolError("Cannot decode null into Oid"))
-		return 0
+		return Oid(0)
 	}
 
 	if vr.Type().DataType != OidOid {
 		vr.Fatal(ProtocolError(fmt.Sprintf("Cannot decode oid %v into pgx.Oid", vr.Type().DataType)))
-		return 0
+		return Oid(0)
 	}
 
 	// Oid needs to decode text format because it is used in loadPgTypes
 	switch vr.Type().FormatCode {
 	case TextFormatCode:
 		s := vr.ReadString(vr.Len())
-		n, err := strconv.ParseInt(s, 10, 32)
+		n, err := strconv.ParseUint(s, 10, 32)
 		if err != nil {
 			vr.Fatal(ProtocolError(fmt.Sprintf("Received invalid Oid: %v", s)))
 		}
@@ -1321,7 +1438,7 @@ func decodeOid(vr *ValueReader) Oid {
 	case BinaryFormatCode:
 		if vr.Len() != 4 {
 			vr.Fatal(ProtocolError(fmt.Sprintf("Received an invalid size for an Oid: %d", vr.Len())))
-			return 0
+			return Oid(0)
 		}
 		return Oid(vr.ReadInt32())
 	default:
@@ -1336,7 +1453,93 @@ func encodeOid(w *WriteBuf, oid Oid, value Oid) error {
 	}
 
 	w.WriteInt32(4)
-	w.WriteInt32(int32(value))
+	w.WriteUint32(uint32(value))
+
+	return nil
+}
+
+func decodeXid(vr *ValueReader) Xid {
+	if vr.Len() == -1 {
+		vr.Fatal(ProtocolError("Cannot decode null into Xid"))
+		return Xid(0)
+	}
+
+	if vr.Type().DataType != XidOid {
+		vr.Fatal(ProtocolError(fmt.Sprintf("Cannot decode oid %v into pgx.Xid", vr.Type().DataType)))
+		return Xid(0)
+	}
+
+	// Unlikely Xid will ever go over the wire as text format, but who knows?
+	switch vr.Type().FormatCode {
+	case TextFormatCode:
+		s := vr.ReadString(vr.Len())
+		n, err := strconv.ParseUint(s, 10, 32)
+		if err != nil {
+			vr.Fatal(ProtocolError(fmt.Sprintf("Received invalid Oid: %v", s)))
+		}
+		return Xid(n)
+	case BinaryFormatCode:
+		if vr.Len() != 4 {
+			vr.Fatal(ProtocolError(fmt.Sprintf("Received an invalid size for an Oid: %d", vr.Len())))
+			return Xid(0)
+		}
+		return Xid(vr.ReadUint32())
+	default:
+		vr.Fatal(ProtocolError(fmt.Sprintf("Unknown field description format code: %v", vr.Type().FormatCode)))
+		return Xid(0)
+	}
+}
+
+func encodeXid(w *WriteBuf, oid Oid, value Xid) error {
+	if oid != XidOid {
+		return fmt.Errorf("cannot encode Go %s into oid %d", "pgx.Xid", oid)
+	}
+
+	w.WriteInt32(4)
+	w.WriteUint32(uint32(value))
+
+	return nil
+}
+
+func decodeCid(vr *ValueReader) Cid {
+	if vr.Len() == -1 {
+		vr.Fatal(ProtocolError("Cannot decode null into Cid"))
+		return Cid(0)
+	}
+
+	if vr.Type().DataType != CidOid {
+		vr.Fatal(ProtocolError(fmt.Sprintf("Cannot decode oid %v into pgx.Cid", vr.Type().DataType)))
+		return Cid(0)
+	}
+
+	// Unlikely Cid will ever go over the wire as text format, but who knows?
+	switch vr.Type().FormatCode {
+	case TextFormatCode:
+		s := vr.ReadString(vr.Len())
+		n, err := strconv.ParseUint(s, 10, 32)
+		if err != nil {
+			vr.Fatal(ProtocolError(fmt.Sprintf("Received invalid Oid: %v", s)))
+		}
+		return Cid(n)
+	case BinaryFormatCode:
+		if vr.Len() != 4 {
+			vr.Fatal(ProtocolError(fmt.Sprintf("Received an invalid size for an Oid: %d", vr.Len())))
+			return Cid(0)
+		}
+		return Cid(vr.ReadUint32())
+	default:
+		vr.Fatal(ProtocolError(fmt.Sprintf("Unknown field description format code: %v", vr.Type().FormatCode)))
+		return Cid(0)
+	}
+}
+
+func encodeCid(w *WriteBuf, oid Oid, value Cid) error {
+	if oid != CidOid {
+		return fmt.Errorf("cannot encode Go %s into oid %d", "pgx.Cid", oid)
+	}
+
+	w.WriteInt32(4)
+	w.WriteUint32(uint32(value))
 
 	return nil
 }
@@ -1645,10 +1848,10 @@ func encodeIPNet(w *WriteBuf, oid Oid, value net.IPNet) error {
 	switch len(value.IP) {
 	case net.IPv4len:
 		size = 8
-		family = *w.conn.pgsql_af_inet
+		family = *w.conn.pgsqlAfInet
 	case net.IPv6len:
 		size = 20
-		family = *w.conn.pgsql_af_inet6
+		family = *w.conn.pgsqlAfInet6
 	default:
 		return fmt.Errorf("Unexpected IP length: %v", len(value.IP))
 	}
