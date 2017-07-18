@@ -38,7 +38,12 @@ func (c *Client) AddService(name string, conf *ServiceConfig) error {
 	if conf.LeaderType == "" {
 		conf.LeaderType = LeaderTypeOldest
 	}
-	return c.Put("/services/"+name, conf, nil)
+	return runAttempts.RunWithValidator(func() error {
+		return c.Put("/services/"+name, conf, nil)
+	}, func(err error) bool {
+		// TODO(titanous): fix Retry error field to be correct for discoverd
+		return !hh.IsObjectExistsError(err)
+	})
 }
 
 func (c *Client) RemoveService(name string) error {
@@ -174,6 +179,11 @@ func (s *service) Leaders(leaders chan *Instance) (stream.Stream, error) {
 
 type ServiceMeta struct {
 	Data json.RawMessage `json:"data"`
+
+	// LeaderID is the optional ID of an instance to set as a leader when
+	// applying the new service metadata. It is only used for writes and is not
+	// returned during reads.
+	LeaderID string `json:"leader_id,omitempty"`
 
 	// When calling SetMeta, Index is checked against the current index and the
 	// set only succeeds if the index is the same. A zero index means the meta
